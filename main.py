@@ -11,6 +11,7 @@ the date, a red BREAKING NEWS band, one hero story, four more in a
 grid, and a lower-third ticker.
 """
 
+import math
 import os
 import struct
 import zlib
@@ -230,6 +231,48 @@ def city(p, base, heights, x0=0, x1=W):
         i += 1
 
 
+def slant(p, x0, y0, x1, y1, c, t=2):
+    dx = x1 - x0
+    dy = y1 - y0
+    steps = max(abs(dx), abs(dy), 1)
+    for i in range(steps + 1):
+        p.disc(x0 + dx * i // steps, y0 + dy * i // steps, t, c)
+
+
+def icon_missile(p, x, y, s, c):
+    cx = x + s // 2
+    p.fill(cx - 3, y + 10, 6, s - 22, c)
+    p.fill(cx - 2, y + 6, 4, 4, c)
+    p.fill(cx - 1, y + 3, 2, 3, c)
+    p.fill(cx - 8, y + s - 16, 4, 8, c)
+    p.fill(cx + 4, y + s - 16, 4, 8, c)
+    p.disc(cx, y + s - 5, 3, GOLD)
+
+
+def icon_trade(p, x, y, s, c):
+    r = s // 4
+    p.disc(x + s // 2 - r // 2, y + s // 2, r, c)
+    p.disc(x + s // 2 - r // 2, y + s // 2, r - 3, CARD)
+    p.disc(x + s // 2 + r // 2, y + s // 2, r, c)
+    p.disc(x + s // 2 + r // 2, y + s // 2, r - 3, CARD)
+
+
+def icon_ban(p, x, y, s, c):
+    r = s // 2 - 2
+    cx, cy = x + s // 2, y + s // 2
+    p.disc(cx, cy, r, c)
+    p.disc(cx, cy, r - 3, CARD)
+    slant(p, cx - r + 3, cy + r - 3, cx + r - 3, cy - r + 3, c)
+
+
+def icon_storm(p, x, y, s, c):
+    cx, cy = x + s // 2, y + s // 2
+    for i in range(26):
+        a = i * 0.6
+        r = 2 + i * 0.6
+        p.disc(int(cx + r * math.cos(a)), int(cy + r * math.sin(a)), 2, c)
+
+
 ITEMS = [
     ("DIPLOMACY", "TRUMP MEETS QUAD ALLIES IN MANILA",
      "FIRST QUAD SUMMIT OF SECOND TERM; MARCOS NEXT"),
@@ -289,6 +332,11 @@ def render():
         p.frame(x, y, cw, ch, LINE, 2)
         p.fill(x, y, cw, 6, RED if idx % 2 == 0 else GOLD)
         p.draw_text(x + 20, y + 20, tag, GOLD if idx % 2 else RED, 2)
+        icons = {"ASIA": icon_missile, "TRADE": icon_trade,
+                 "MIDDLE EAST": icon_ban, "WEATHER": icon_storm}
+        fn = icons.get(tag)
+        if fn:
+            fn(p, x + cw - 62, y + 12, 44, GOLD if idx % 2 else RED)
         p.para(x + 20, y + 56, head, WHITE, 3, cw - 40, leading=27)
         p.fill(x + 20, y + 132, cw - 40, 2, LINE)
         p.para(x + 20, y + 148, sub, GREY, 2, cw - 40, leading=19)
