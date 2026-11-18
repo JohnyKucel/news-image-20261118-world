@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""One TV live-news frame summing up Wednesday 18 November 2026.
+"""A newspaper front page summing up Wednesday 18 November 2026.
 
 Pure Python 3.13 standard library. No network, no randomness, no
 clock: the same input always renders the same PNG bytes.
 
-Design: a newspaper front page crossed with a live TV broadcast.
-New York Times style hierarchy (one unmistakable lead story, rank by
-type size, thin rules instead of boxes, generous whitespace) with
-Guardian style colour-coded section kickers. Headlines use strong
-verbs and numbers, eleven to fourteen words where the space allows,
-factual only, no clickbait.
+Design: a classic broadsheet front page, not a TV broadcast. Big
+centred nameplate, the full date (day, month, year) large directly
+under it so the news is unmistakably today's, then one unmistakable
+lead story with a real photo, and four more stories in a two-column
+grid. New York Times style hierarchy: rank by type size, thin rules
+instead of boxes, generous whitespace. Headlines use strong verbs
+and numbers, factual only, no clickbait.
 
 Photos (free licences only, decoded at runtime by a pure-stdlib PNG
 decoder and blitted onto the canvas):
@@ -34,19 +35,11 @@ import zlib
 W = 1024
 H = 1024
 
-NAVY = (11, 27, 51)
-NAVY2 = (15, 36, 66)
-HEROBG = (22, 54, 96)
-LINE = (56, 102, 156)
-RED = (212, 38, 34)
-DARKRED = (158, 24, 22)
-GOLD = (233, 179, 44)
-WHITE = (255, 255, 255)
-MIST = (216, 226, 240)
-GREY = (160, 174, 194)
-NIGHT = (7, 17, 34)
-TEAL = (78, 205, 196)
-BLUE = (91, 141, 239)
+PAPER = (250, 248, 242)
+INK = (17, 17, 17)
+GREYINK = (96, 94, 88)
+HAIR = (168, 165, 155)
+RED = (198, 32, 28)
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
@@ -430,57 +423,38 @@ class Paint:
             self.draw_text(x, y + i * step, ln, c, font, scale)
         return len(lines)
 
-    def draw_image(self, x, y, w, h, img):
-        """Blit a decoded PNG (iw, ih, rgb bytearray) scaled to (w, h)."""
+    def draw_image(self, x, y, w, h, img, src=None):
+        """Blit a decoded PNG (iw, ih, rgb bytearray) scaled to (w, h).
+
+        With src=(sx, sy, sw, sh), blit only that source rectangle,
+        scaled to (w, h): a crop, never a squash.
+        """
         iw, ih, data = img
+        if src is None:
+            sx0, sy0, sw, sh = 0, 0, iw, ih
+        else:
+            sx0, sy0, sw, sh = src
         for dy in range(h):
             yy = y + dy
             if yy < 0 or yy >= self.h:
                 continue
-            sy = dy * ih // h
+            sy = sy0 + dy * sh // h
             base = (yy * self.w + x) * 3
             for dx in range(w):
                 xx = x + dx
                 if xx < 0 or xx >= self.w:
                     continue
-                sx = dx * iw // w
+                sx = sx0 + dx * sw // w
                 o = (sy * iw + sx) * 3
                 j = base + dx * 3
                 self.pxbuf[j] = data[o]
                 self.pxbuf[j + 1] = data[o + 1]
                 self.pxbuf[j + 2] = data[o + 2]
 
-    def photo(self, x, y, w, h, img, credit):
-        """Blit a photo with a dark caption bar and credit line."""
-        self.draw_image(x, y, w, h, img)
-        self.fill(x, y + h - 14, w, 14, NIGHT)
-        self.draw_text(x + 6, y + h - 12, credit, GREY, BODY, 1)
-
-
-def slant(p, x0, y0, x1, y1, c, t=2):
-    dx = x1 - x0
-    dy = y1 - y0
-    steps = max(abs(dx), abs(dy), 1)
-    for i in range(steps + 1):
-        p.disc(x0 + dx * i // steps, y0 + dy * i // steps, t, c)
-
-
-def icon_missile(p, x, y, s, c):
-    cx = x + s // 2
-    p.fill(cx - 3, y + 10, 6, s - 22, c)
-    p.fill(cx - 2, y + 6, 4, 4, c)
-    p.fill(cx - 1, y + 3, 2, 3, c)
-    p.fill(cx - 8, y + s - 16, 4, 8, c)
-    p.fill(cx + 4, y + s - 16, 4, 8, c)
-    p.disc(cx, y + s - 5, 3, GOLD)
-
-
-def icon_ban(p, x, y, s, c):
-    r = s // 2 - 2
-    cx, cy = x + s // 2, y + s // 2
-    p.disc(cx, cy, r, c)
-    p.disc(cx, cy, r - 3, NAVY)
-    slant(p, cx - r + 3, cy + r - 3, cx + r - 3, cy - r + 3, c)
+    def photo(self, x, y, w, h, img, credit, src=None):
+        """Blit a photo, credit line in small grey type just below it."""
+        self.draw_image(x, y, w, h, img, src)
+        self.draw_text(x, y + h + 4, credit, GREYINK, BODY, 1)
 
 
 HERO = {
@@ -493,107 +467,83 @@ HERO = {
     "credit": "PHOTO: GAGE SKIDMORE / CC BY-SA 2.0",
 }
 
-# Row 1: photo cards. Row 2: pictogram cards.
+# Row 1: photo cards. Row 2: text-only cards. One-line subs, so each
+# card fits its row; wording trimmed, facts unchanged.
 CARDS = [
-    {"tag": "MIDDLE EAST", "color": RED,
+    {"tag": "MIDDLE EAST",
      "head": "US JETS STRIKE IRAN AFTER DRONE ATTACK",
-     "sub": "3RD ATTACK ON BAHRAIN IN 5 DAYS; NO DAMAGE",
+     "sub": "3RD ATTACK ON BAHRAIN IN 5 DAYS",
      "photo": "jet.png",
      "credit": "PHOTO: US AIR FORCE / PUBLIC DOMAIN"},
-    {"tag": "WEATHER", "color": TEAL,
+    {"tag": "WEATHER",
      "head": "AKVAN STORM STRENGTHENS OFF INDIA",
      "sub": "LANDFALL FRIDAY; WINDS 145 KM/H",
      "photo": "akvan.png",
      "credit": "IMAGE: NASA WORLDVIEW / PUBLIC DOMAIN"},
-    {"tag": "ASIA", "color": BLUE,
+    {"tag": "ASIA",
      "head": "NORTH KOREA FIRES MISSILE INTO SEA",
-     "sub": "SEOUL: BALLISTIC MISSILE LAUNCHED FROM WONSAN",
-     "icon": "missile"},
-    {"tag": "MIDDLE EAST", "color": RED,
-     "head": "BRITAIN SANCTIONS ISRAELI SETTLEMENT FIRMS",
-     "sub": "LONDON ACTS TO PROTECT TWO-STATE SOLUTION",
-     "icon": "ban"},
+     "sub": "SEOUL: MISSILE FIRED FROM WONSAN"},
+    {"tag": "MIDDLE EAST",
+     "head": "UK SANCTIONS ISRAELI SETTLEMENT FIRMS",
+     "sub": "LONDON ACTS FOR TWO-STATE SOLUTION"},
 ]
-
-TICKER = "MANILA | US-IRAN STRIKES | KOREA MISSILE | UK SANCTIONS | AKVAN"
 
 
 def render():
-    p = Paint(W, H, NAVY)
-    for i in range(8):
-        p.fill(0, i * 128, W, 128, NAVY if i % 2 == 0 else NAVY2)
+    p = Paint(W, H, PAPER)
 
-    p.fill(0, 0, W, 3, GOLD)
+    # Nameplate: double rule, big centred masthead, thick-thin rule.
+    p.fill(24, 12, 976, 3, INK)
+    p.fill(24, 18, 976, 1, INK)
+    p.center_text(512, 28, "THE WORLD", INK, HEAD, 10)
+    p.fill(24, 136, 976, 3, INK)
+    p.fill(24, 142, 976, 1, INK)
 
-    # Masthead.
-    p.center_text(512, 14, "THE WORLD", WHITE, HEAD, 7)
-    p.rrect(884, 28, 116, 40, 8, RED)
-    p.disc(904, 48, 6, WHITE)
-    p.draw_text(916, 38, "LIVE", WHITE, HEAD, 2)
+    # Dateline, large and impossible to miss: full day, month, year.
+    p.center_text(512, 152, "WEDNESDAY, 18 NOVEMBER 2026", INK, HEAD, 4)
+    p.fill(24, 200, 976, 1, HAIR)
+    p.draw_text(24, 208, "WORLD NEWS", INK, BODY, 2)
+    right = measure("LATE EDITION", BODY, 2)
+    p.draw_text(1000 - right, 208, "LATE EDITION", INK, BODY, 2)
+    p.fill(24, 232, 976, 3, INK)
 
-    # Date line with flanking rules.
-    p.fill(24, 116, 176, 2, GOLD)
-    p.fill(824, 116, 176, 2, GOLD)
-    p.center_text(512, 104, "WEDNESDAY, 18 NOVEMBER 2026", GOLD, BODY, 3)
-
-    # Breaking band.
-    p.fill(24, 140, 976, 36, RED)
-    p.fill(24, 140, 976, 3, DARKRED)
-    p.center_text(512, 143, "BREAKING NEWS", WHITE, HEAD, 3)
-
-    # Hero: real photo left, lead story right.
-    hx, hy, hw, hh = 24, 188, 976, 264
-    p.fill(hx, hy, hw, hh, HEROBG)
-    p.frame(hx, hy, hw, hh, LINE, 2)
-    p.fill(hx, hy, hw, 6, RED)
+    # Lead story: kicker, one-line headline, photo left, deck right.
+    p.draw_text(24, 248, HERO["tag"], RED, BODY, 2)
+    p.draw_text(24, 274, HERO["head"], INK, HEAD, 4)
     hero_img = read_png(os.path.join(ASSETS, HERO["photo"]))
-    p.photo(hx, hy + 6, 470, hh - 6, hero_img, HERO["credit"])
-    tx = hx + 494
-    tw = hx + hw - 24 - tx
-    p.draw_text(tx, hy + 18, HERO["tag"], GOLD, BODY, 2)
-    p.fill(tx, hy + 40, 64, 3, GOLD)
-    p.para(tx, hy + 56, HERO["head"], WHITE, HEAD, 4, tw, leading=48)
-    p.para(tx, hy + 160, HERO["sub"], MIST, BODY, 2, tw, leading=20)
-    p.para(tx, hy + 212, HERO["agenda"], GOLD, BODY, 2, tw, leading=20)
-
-    # Hairline between hero and grid.
-    p.fill(24, 464, 976, 2, GOLD)
+    p.photo(24, 328, 440, 248, hero_img, HERO["credit"])
+    tx = 488
+    p.para(tx, 328, HERO["sub"], INK, BODY, 2, 512, leading=20)
+    p.para(tx, 388, HERO["agenda"], GREYINK, BODY, 2, 512, leading=20)
+    p.fill(24, 600, 976, 1, HAIR)
 
     # Grid hairlines.
-    p.fill(511, 476, 1, 452, LINE)
-    p.fill(24, 730, 976, 1, LINE)
+    p.fill(511, 612, 1, 350, HAIR)
+    p.fill(24, 838, 976, 1, HAIR)
 
-    # Row 1: photo cards.
+    # Row 1: photo cards (centre-cropped strips, never squashed).
     for i, card in enumerate(CARDS[:2]):
         x = 24 + i * 494
         img = read_png(os.path.join(ASSETS, card["photo"]))
-        p.photo(x, 476, 482, 96, img, card["credit"])
-        p.draw_text(x, 580, card["tag"], card["color"], BODY, 2)
-        n = p.para(x, 602, card["head"], WHITE, HEAD, 3, 482, leading=36)
-        p.para(x, 602 + n * 36 + 8, card["sub"], GREY, BODY, 2, 482,
+        src = (0, (img[1] - 84) // 2, 482, 84)
+        p.photo(x, 612, 482, 84, img, card["credit"], src)
+        p.draw_text(x, 714, card["tag"], RED, BODY, 2)
+        n = p.para(x, 736, card["head"], INK, HEAD, 3, 482, leading=34)
+        p.para(x, 736 + n * 34 + 6, card["sub"], GREYINK, BODY, 2, 482,
                leading=20)
 
-    # Row 2: pictogram cards.
+    # Row 2: text-only cards.
     for i, card in enumerate(CARDS[2:]):
         x = 24 + i * 494
-        p.draw_text(x, 746, card["tag"], card["color"], BODY, 2)
-        n = p.para(x, 772, card["head"], WHITE, HEAD, 3, 442, leading=34)
-        p.para(x, 772 + n * 34 + 10, card["sub"], GREY, BODY, 2, 442,
-               leading=19)
-        if card["icon"] == "missile":
-            icon_missile(p, x + 402, 746, 72, card["color"])
-        else:
-            icon_ban(p, x + 402, 746, 72, card["color"])
+        p.draw_text(x, 850, card["tag"], RED, BODY, 2)
+        n = p.para(x, 872, card["head"], INK, HEAD, 3, 482, leading=34)
+        p.para(x, 872 + n * 34 + 6, card["sub"], GREYINK, BODY, 2, 482,
+               leading=20)
 
-    # Lower-third ticker.
-    ty = 940
-    p.fill(0, ty, W, H - ty, NIGHT)
-    p.fill(0, ty, W, 3, GOLD)
-    p.rrect(24, 950, 116, 40, 8, RED)
-    p.disc(48, 970, 6, WHITE)
-    p.draw_text(64, 960, "LIVE", WHITE, HEAD, 2)
-    tw = measure(TICKER, BODY, 2)
-    p.draw_text(152 + (848 - tw) // 2, 962, TICKER, WHITE, BODY, 2)
+    # Footer: the date again, under a rule.
+    p.fill(24, 974, 976, 2, INK)
+    p.center_text(512, 984, "THE WORLD | WEDNESDAY, 18 NOVEMBER 2026",
+                  INK, BODY, 2)
     return p.pxbuf
 
 
