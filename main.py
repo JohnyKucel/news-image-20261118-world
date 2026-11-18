@@ -2,16 +2,31 @@
 """One TV live-news frame summing up Wednesday 18 November 2026.
 
 Pure Python 3.13 standard library. No network, no randomness, no
-clock, no outside images or fonts: the same input always renders the
-same PNG bytes.
+clock: the same input always renders the same PNG bytes.
 
-The frame is a dark-blue news studio: a dotted world map and a lit
-skyline behind the panels, masthead THE WORLD with a red LIVE bug,
-the date, a red BREAKING NEWS band, one hero story, four more in a
-grid, and a lower-third ticker.
+Design: a newspaper front page crossed with a live TV broadcast.
+New York Times style hierarchy (one unmistakable lead story, rank by
+type size, thin rules instead of boxes, generous whitespace) with
+Guardian style colour-coded section kickers. Headlines use strong
+verbs and numbers, eleven to fourteen words where the space allows,
+factual only, no clickbait.
+
+Photos (free licences only, decoded at runtime by a pure-stdlib PNG
+decoder and blitted onto the canvas):
+- Hero, Donald Trump at a podium: Gage Skidmore, CC BY-SA 2.0,
+  https://commons.wikimedia.org/wiki/File:Donald_Trump_(55238711502).jpg
+  (Phoenix rally, 17 April 2026; depicts the story's main figure,
+  not the Manila summit itself).
+- F-15E Strike Eagle over US Central Command: US Air Force photo by
+  SrA Keegan Putman, public domain,
+  https://commons.wikimedia.org/wiki/File:U_S_KC-135_refuels_Strike_Eagles_over_CENTCOM_(9007204).jpg
+- Cyclone Akvan over the Bay of Bengal, 16 November 2026: NASA
+  Worldview, NOAA-20 VIIRS true colour, public domain,
+  fetched as tiles from NASA GIBS
+  (https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/
+  VIIRS_NOAA20_CorrectedReflectance_TrueColor).
 """
 
-import math
 import os
 import struct
 import zlib
@@ -21,7 +36,6 @@ H = 1024
 
 NAVY = (11, 27, 51)
 NAVY2 = (15, 36, 66)
-CARD = (19, 45, 80)
 HEROBG = (22, 54, 96)
 LINE = (56, 102, 156)
 RED = (212, 38, 34)
@@ -30,79 +44,299 @@ GOLD = (233, 179, 44)
 WHITE = (255, 255, 255)
 MIST = (216, 226, 240)
 GREY = (160, 174, 194)
-DOTC = (32, 62, 102)
 NIGHT = (7, 17, 34)
-NIGHT2 = (10, 24, 46)
-LAMP = (233, 179, 44)
-LAMP2 = (120, 170, 220)
+TEAL = (78, 205, 196)
+BLUE = (91, 141, 239)
+
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
-# 5x7 glyphs, one row per integer, bit 4 = leftmost pixel.
-GLYPHS = {
-    "A": [14, 17, 17, 31, 17, 17, 17],
-    "B": [30, 17, 17, 30, 17, 17, 30],
-    "C": [15, 16, 16, 16, 16, 16, 15],
-    "D": [30, 17, 17, 17, 17, 17, 30],
-    "E": [31, 16, 16, 30, 16, 16, 31],
-    "F": [31, 16, 16, 30, 16, 16, 16],
-    "G": [15, 16, 16, 23, 17, 17, 14],
-    "H": [17, 17, 17, 31, 17, 17, 17],
-    "I": [14, 4, 4, 4, 4, 4, 14],
-    "J": [7, 2, 2, 2, 2, 18, 6],
-    "K": [17, 18, 20, 24, 20, 18, 17],
-    "L": [16, 16, 16, 16, 16, 16, 31],
-    "M": [17, 27, 21, 21, 17, 17, 17],
-    "N": [17, 25, 21, 19, 17, 17, 17],
-    "O": [14, 17, 17, 17, 17, 17, 14],
-    "P": [30, 17, 17, 30, 16, 16, 16],
-    "Q": [14, 17, 17, 17, 21, 18, 13],
-    "R": [30, 17, 17, 30, 20, 18, 17],
-    "S": [15, 16, 16, 14, 1, 1, 30],
-    "T": [31, 4, 4, 4, 4, 4, 4],
-    "U": [17, 17, 17, 17, 17, 17, 14],
-    "V": [17, 17, 17, 17, 17, 10, 4],
-    "W": [17, 17, 17, 21, 21, 27, 17],
-    "X": [17, 17, 10, 4, 10, 17, 17],
-    "Y": [17, 17, 10, 4, 4, 4, 4],
-    "Z": [31, 1, 2, 4, 8, 16, 31],
-    "0": [14, 17, 19, 21, 25, 17, 14],
-    "1": [4, 6, 4, 4, 4, 4, 14],
-    "2": [14, 17, 1, 2, 4, 8, 31],
-    "3": [30, 1, 1, 14, 1, 1, 30],
-    "4": [2, 6, 10, 18, 31, 2, 2],
-    "5": [31, 16, 30, 1, 1, 17, 14],
-    "6": [14, 16, 16, 30, 17, 17, 14],
-    "7": [31, 1, 2, 2, 4, 4, 4],
-    "8": [14, 17, 17, 14, 17, 17, 14],
-    "9": [14, 17, 17, 15, 1, 2, 6],
-    " ": [0, 0, 0, 0, 0, 0, 0],
-    ".": [0, 0, 0, 0, 0, 6, 6],
-    ",": [0, 0, 0, 0, 6, 2, 4],
-    ";": [0, 6, 6, 0, 6, 2, 4],
-    ":": [0, 6, 6, 0, 6, 6, 0],
-    "!": [4, 4, 4, 4, 4, 0, 4],
-    "?": [14, 17, 1, 2, 4, 0, 4],
-    "'": [4, 4, 4, 0, 0, 0, 0],
-    "-": [0, 0, 0, 14, 0, 0, 0],
-    "/": [1, 2, 2, 4, 8, 8, 16],
-    "(": [2, 4, 8, 8, 8, 4, 2],
-    ")": [8, 4, 2, 2, 2, 4, 8],
-    "&": [6, 18, 20, 8, 21, 18, 13],
-    "%": [25, 26, 1, 2, 4, 8, 19],
-    "|": [4, 4, 4, 4, 4, 4, 4],
+def read_png(path):
+    """Decode a non-interlaced 8-bit PNG (grey, RGB, palette, RGBA).
+
+    Pure stdlib: parses IHDR/PLTE/IDAT, inflates with zlib, undoes
+    filters 0-4 (None, Sub, Up, Average, Paeth). Returns
+    (width, height, bytearray of RGB triples, row-major).
+    """
+    data = open(path, "rb").read()
+    assert data[:8] == b"\x89PNG\r\n\x1a\n", "not a PNG"
+    pos = 8
+    width = height = bitdepth = ctype = interlace = None
+    plte = None
+    idat = bytearray()
+    while pos < len(data):
+        ln = int.from_bytes(data[pos:pos + 4], "big")
+        kind = data[pos + 4:pos + 8]
+        chunk = data[pos + 8:pos + 8 + ln]
+        if kind == b"IHDR":
+            width, height, bitdepth, ctype, _c, _f, interlace = \
+                struct.unpack(">IIBBBBB", chunk)
+        elif kind == b"PLTE":
+            plte = chunk
+        elif kind == b"IDAT":
+            idat += chunk
+        elif kind == b"IEND":
+            break
+        pos += 12 + ln
+    assert interlace == 0, "interlaced PNG not supported"
+    assert bitdepth == 8, "only 8-bit PNG supported"
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
+    stride = width * channels
+    raw = zlib.decompress(bytes(idat))
+    out = bytearray(width * height * 3)
+    prev = bytearray(stride)
+    p = 0
+    for y in range(height):
+        f = raw[p]
+        p += 1
+        line = bytearray(raw[p:p + stride])
+        p += stride
+        if f == 1:
+            for i in range(channels, stride):
+                line[i] = (line[i] + line[i - channels]) & 255
+        elif f == 2:
+            for i in range(stride):
+                line[i] = (line[i] + prev[i]) & 255
+        elif f == 3:
+            for i in range(stride):
+                a = line[i - channels] if i >= channels else 0
+                line[i] = (line[i] + ((a + prev[i]) >> 1)) & 255
+        elif f == 4:
+            for i in range(stride):
+                a = line[i - channels] if i >= channels else 0
+                b = prev[i]
+                c = prev[i - channels] if i >= channels else 0
+                pa = abs(b - c)
+                pb = abs(a - c)
+                pc = abs(a + b - 2 * c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc else c)
+                line[i] = (line[i] + pr) & 255
+        for x in range(width):
+            if ctype == 0:
+                g = line[x]
+                r, g2, b = g, g, g
+            elif ctype == 2:
+                r, g2, b = line[3 * x:3 * x + 3]
+            elif ctype == 3:
+                idx = line[x]
+                r, g2, b = plte[3 * idx:3 * idx + 3]
+            elif ctype == 4:
+                g = line[2 * x]
+                r, g2, b = g, g, g
+            else:
+                r, g2, b = line[4 * x:4 * x + 3]
+            o = (y * width + x) * 3
+            out[o] = r
+            out[o + 1] = g2
+            out[o + 2] = b
+        prev = line
+    return width, height, out
+
+
+# HEAD: bold condensed headline font, 6 wide x 10 tall, 2px stems.
+# One row per string, '#' = ink, '.' = empty, left to right, top to bottom.
+HEAD_GLYPHS = {
+    "A": ["..##..", ".####.", "##..##", "##..##", "##..##",
+          "######", "##..##", "##..##", "##..##", "##..##"],
+    "B": ["#####.", "##..##", "##..##", "##..##", "#####.",
+          "##..##", "##..##", "##..##", "##..##", "#####."],
+    "C": [".####.", "##..##", "##....", "##....", "##....",
+          "##....", "##....", "##....", "##..##", ".####."],
+    "D": ["#####.", "##..##", "##..##", "##..##", "##..##",
+          "##..##", "##..##", "##..##", "##..##", "#####."],
+    "E": ["######", "##....", "##....", "##....", "#####.",
+          "##....", "##....", "##....", "##....", "######"],
+    "F": ["######", "##....", "##....", "##....", "#####.",
+          "##....", "##....", "##....", "##....", "##...."],
+    "G": [".####.", "##..##", "##....", "##....", "##.###",
+          "##..##", "##..##", "##..##", "##..##", ".####."],
+    "H": ["##..##", "##..##", "##..##", "##..##", "######",
+          "##..##", "##..##", "##..##", "##..##", "##..##"],
+    "I": ["######", "..##..", "..##..", "..##..", "..##..",
+          "..##..", "..##..", "..##..", "..##..", "######"],
+    "J": [".####.", "....##", "....##", "....##", "....##",
+          "....##", "....##", "##..##", "##..##", ".####."],
+    "K": ["##..##", "##.##.", "##.##.", "####..", "##.##.",
+          "##.##.", "##..##", "##..##", "##..##", "##..##"],
+    "L": ["##....", "##....", "##....", "##....", "##....",
+          "##....", "##....", "##....", "##....", "######"],
+    "M": ["##..##", "###.##", "###.##", "##.###", "##.###",
+          "##.###", "##..##", "##..##", "##..##", "##..##"],
+    "N": ["##..##", "###.##", "####.#", "##.###", "##.###",
+          "##.###", "##.###", "##..##", "##..##", "##..##"],
+    "O": [".####.", "##..##", "##..##", "##..##", "##..##",
+          "##..##", "##..##", "##..##", "##..##", ".####."],
+    "P": ["#####.", "##..##", "##..##", "##..##", "#####.",
+          "##....", "##....", "##....", "##....", "##...."],
+    "Q": [".####.", "##..##", "##..##", "##..##", "##..##",
+          "##..##", "##..##", "##.###", "##..##", ".##.#."],
+    "R": ["#####.", "##..##", "##..##", "##..##", "#####.",
+          "##.##.", "##.##.", "##..##", "##..##", "##..##"],
+    "S": [".####.", "##..##", "##....", "##....", ".####.",
+          "....##", "....##", "##..##", "##..##", ".####."],
+    "T": ["######", "..##..", "..##..", "..##..", "..##..",
+          "..##..", "..##..", "..##..", "..##..", "..##.."],
+    "U": ["##..##", "##..##", "##..##", "##..##", "##..##",
+          "##..##", "##..##", "##..##", "##..##", ".####."],
+    "V": ["##..##", "##..##", "##..##", "##..##", "##..##",
+          "##..##", "##..##", ".####.", ".####.", "..##.."],
+    "W": ["##..##", "##..##", "##..##", "##..##", "##..##",
+          "##.###", "##.###", "###.##", "###.##", "##..##"],
+    "X": ["##..##", "##..##", "##..##", ".####.", ".####.",
+          ".####.", "##..##", "##..##", "##..##", "##..##"],
+    "Y": ["##..##", "##..##", "##..##", "##..##", ".####.",
+          "..##..", "..##..", "..##..", "..##..", "..##.."],
+    "Z": ["######", "....##", "...##.", "...##.", "..##..",
+          "..##..", ".##...", ".##...", "##....", "######"],
+    "0": [".####.", "##..##", "##..##", "##.###", "##.###",
+          "##.###", "##.###", "##.###", "##..##", ".####."],
+    "1": ["..##..", ".###..", "..##..", "..##..", "..##..",
+          "..##..", "..##..", "..##..", "..##..", ".####."],
+    "2": [".####.", "##..##", "....##", "....##", "...##.",
+          "..##..", ".##...", "##....", "##....", "######"],
+    "3": [".####.", "....##", "....##", "....##", "..###.",
+          "....##", "....##", "....##", "##..##", ".####."],
+    "4": ["...##.", "..##..", "..###.", ".##.#.", "##..##",
+          "##..##", "######", "....##", "....##", "....##"],
+    "5": ["######", "##....", "##....", "#####.", "....##",
+          "....##", "....##", "##..##", "##..##", ".####."],
+    "6": [".####.", "##..##", "##....", "##....", "#####.",
+          "##..##", "##..##", "##..##", "##..##", ".####."],
+    "7": ["######", "....##", "....##", "...##.", "...##.",
+          "..##..", "..##..", "..##..", "..##..", "..##.."],
+    "8": [".####.", "##..##", "##..##", "##..##", ".####.",
+          "##..##", "##..##", "##..##", "##..##", ".####."],
+    "9": [".####.", "##..##", "##..##", "##..##", "##..##",
+          ".#####", "....##", "....##", "##..##", ".####."],
+    " ": ["......", "......", "......", "......", "......",
+          "......", "......", "......", "......", "......"],
+    ",": ["......", "......", "......", "......", "......",
+          "......", "......", "..##..", ".##...", "##...."],
+    ";": ["......", "......", "..##..", "..##..", "......",
+          "......", "......", "..##..", ".##...", "##...."],
+    ":": ["......", "......", "..##..", "..##..", "......",
+          "......", "..##..", "..##..", "......", "......"],
+    "-": ["......", "......", "......", "......", ".####.",
+          ".####.", "......", "......", "......", "......"],
+    "|": ["..##..", "..##..", "..##..", "..##..", "..##..",
+          "..##..", "..##..", "..##..", "..##..", "..##.."],
+    "/": ["....##", "....##", "...##.", "...##.", "..##..",
+          "..##..", ".##...", ".##...", "##....", "##...."],
+    ".": ["......", "......", "......", "......", "......",
+          "......", "......", "......", "..##..", "..##.."],
+    "?": [".####.", "##..##", "....##", "....##", "...##.",
+          "..##..", "......", "..##..", "..##..", "......"],
 }
+HEAD = {"w": 6, "h": 10, "glyphs": HEAD_GLYPHS}
 
 
-def glyph_rows(ch):
-    return GLYPHS.get(ch, GLYPHS["?"])
+# BODY: clean readable text font, 6 wide x 8 tall, 1px stems, open
+# counters, for sub-lines, kickers, dates and credits at small sizes.
+BODY_GLYPHS = {
+    "A": [".####.", "#...#.", "#...#.", "#####.", "#...#.",
+          "#...#.", "#...#.", "#...#."],
+    "B": ["####..", "#...#.", "#...#.", "####..", "#...#.",
+          "#...#.", "#...#.", "####.."],
+    "C": [".####.", "#....#", "#.....", "#.....", "#.....",
+          "#.....", "#....#", ".####."],
+    "D": ["####..", "#...#.", "#...#.", "#...#.", "#...#.",
+          "#...#.", "#...#.", "####.."],
+    "E": ["#####.", "#.....", "#.....", "####..", "#.....",
+          "#.....", "#.....", "#####."],
+    "F": ["#####.", "#.....", "#.....", "####..", "#.....",
+          "#.....", "#.....", "#....."],
+    "G": [".####.", "#....#", "#.....", "#.....", "#..###",
+          "#....#", "#....#", ".####."],
+    "H": ["#...#.", "#...#.", "#...#.", "#####.", "#...#.",
+          "#...#.", "#...#.", "#...#."],
+    "I": [".###..", "..#...", "..#...", "..#...", "..#...",
+          "..#...", "..#...", ".###.."],
+    "J": ["..###.", "....#.", "....#.", "....#.", "....#.",
+          "....#.", "#...#.", ".###.."],
+    "K": ["#...#.", "#..#..", "#..#..", "#.#...", "##....",
+          "#.#...", "#..#..", "#...#."],
+    "L": ["#.....", "#.....", "#.....", "#.....", "#.....",
+          "#.....", "#.....", "#####."],
+    "M": ["#...#.", "##.##.", "##.##.", "#.#.#.", "#.#.#.",
+          "#...#.", "#...#.", "#...#."],
+    "N": ["#...#.", "##..#.", "##..#.", "#.#.#.", "#.#.#.",
+          "#..##.", "#..##.", "#...#."],
+    "O": [".###..", "#...#.", "#...#.", "#...#.", "#...#.",
+          "#...#.", "#...#.", ".###.."],
+    "P": ["####..", "#...#.", "#...#.", "####..", "#.....",
+          "#.....", "#.....", "#....."],
+    "Q": [".###..", "#...#.", "#...#.", "#...#.", "#...#.",
+          "#.#.#.", "#..#..", ".##.#."],
+    "R": ["####..", "#...#.", "#...#.", "####..", "#.#...",
+          "#..#..", "#..#..", "#...#."],
+    "S": [".####.", "#....#", "#.....", ".###..", "....#.",
+          "#....#", "#....#", ".####."],
+    "T": ["#####.", "..#...", "..#...", "..#...", "..#...",
+          "..#...", "..#...", "..#..."],
+    "U": ["#...#.", "#...#.", "#...#.", "#...#.", "#...#.",
+          "#...#.", "#...#.", ".###.."],
+    "V": ["#...#.", "#...#.", "#...#.", "#...#.", "#...#.",
+          "#...#.", ".###..", "..#..."],
+    "W": ["#...#.", "#...#.", "#...#.", "#...#.", "#.#.#.",
+          "#.#.#.", "##.##.", "#...#."],
+    "X": ["#...#.", "#...#.", ".#.#..", "..#...", "..#...",
+          ".#.#..", "#...#.", "#...#."],
+    "Y": ["#...#.", "#...#.", "#...#.", ".#.#..", "..#...",
+          "..#...", "..#...", "..#..."],
+    "Z": ["#####.", "....#.", "...#..", "..#...", "..#...",
+          ".#....", "#.....", "#####."],
+    "0": [".###..", "#...#.", "#..##.", "#.#.#.", "##..#.",
+          "#...#.", "#...#.", ".###.."],
+    "1": ["..#...", ".##...", "..#...", "..#...", "..#...",
+          "..#...", "..#...", ".###.."],
+    "2": [".###..", "#...#.", "....#.", "...#..", "..#...",
+          ".#....", "#.....", "#####."],
+    "3": ["####..", "....#.", "....#.", ".###..", "....#.",
+          "....#.", "#...#.", ".###.."],
+    "4": ["...#..", "..##..", ".#.#..", "#..#..", "#..#..",
+          "#####.", "...#..", "...#.."],
+    "5": ["#####.", "#.....", "#.....", "####..", "....#.",
+          "....#.", "#...#.", ".###.."],
+    "6": [".###..", "#.....", "#.....", "####..", "#...#.",
+          "#...#.", "#...#.", ".###.."],
+    "7": ["#####.", "....#.", "...#..", "...#..", "..#...",
+          "..#...", "..#...", "..#..."],
+    "8": [".###..", "#...#.", "#...#.", ".###..", "#...#.",
+          "#...#.", "#...#.", ".###.."],
+    "9": [".###..", "#...#.", "#...#.", "#...#.", ".####.",
+          "....#.", "....#.", ".###.."],
+    " ": ["......", "......", "......", "......", "......",
+          "......", "......", "......"],
+    ",": ["......", "......", "......", "......", "......",
+          "......", "..#...", ".#...."],
+    ";": ["......", "..#...", "..#...", "......", "......",
+          "......", "..#...", ".#...."],
+    ":": ["......", "..#...", "..#...", "......", "......",
+          "..#...", "..#...", "......"],
+    "-": ["......", "......", "......", ".####.", ".####.",
+          "......", "......", "......"],
+    "|": ["..#...", "..#...", "..#...", "..#...", "..#...",
+          "..#...", "..#...", "..#..."],
+    "/": ["....#.", "....#.", "...#..", "...#..", "..#...",
+          "..#...", ".#....", ".#...."],
+    ".": ["......", "......", "......", "......", "......",
+          "......", "..#...", "..#..."],
+    "?": [".###..", "#...#.", "....#.", "...#..", "..#...",
+          "......", "..#...", "..#..."],
+}
+BODY = {"w": 6, "h": 8, "glyphs": BODY_GLYPHS}
 
 
-def measure(text, scale):
-    return len(text) * 6 * scale - scale
+def glyph_rows(font, ch):
+    return font["glyphs"].get(ch, font["glyphs"]["?"])
 
 
-def split_lines(text, width, scale):
-    per_line = max(1, width // (6 * scale))
+def measure(text, font, scale):
+    return len(text) * (font["w"] + 1) * scale - scale
+
+
+def split_lines(text, width, font, scale):
+    per_line = max(1, width // ((font["w"] + 1) * scale))
     out = []
     for chunk in text.split("\n"):
         words = chunk.split(" ")
@@ -160,7 +394,8 @@ class Paint:
         self.fill(x + r, y, w - 2 * r, h, c)
         self.fill(x, y + r, w, h - 2 * r, c)
         for cx, cy in ((x + r, y + r), (x + w - r - 1, y + r),
-                       (x + r, y + h - r - 1), (x + w - r - 1, y + h - r - 1)):
+                       (x + r, y + h - r - 1),
+                       (x + w - r - 1, y + h - r - 1)):
             self.disc(cx, cy, r, c)
 
     def frame(self, x, y, w, h, c, t=1):
@@ -171,64 +406,55 @@ class Paint:
                 self.set(x + k, yy, c)
                 self.set(x + w - 1 - k, yy, c)
 
-    def draw_text(self, x, y, s, c, scale=2):
+    def draw_text(self, x, y, s, c, font, scale=2):
         cx = x
         for ch in s.upper():
-            rows = glyph_rows(ch)
-            for r in range(7):
-                bits = rows[r]
-                for col in range(5):
-                    if (bits >> (4 - col)) & 1:
+            rows = glyph_rows(font, ch)
+            for r in range(font["h"]):
+                row = rows[r]
+                for col in range(font["w"]):
+                    if row[col] == "#":
                         self.fill(cx + col * scale, y + r * scale,
                                   scale, scale, c)
-            cx += 6 * scale
+            cx += (font["w"] + 1) * scale
         return cx
 
-    def center_text(self, cx, y, s, c, scale=2):
-        self.draw_text(cx - measure(s, scale) // 2, y, s, c, scale)
+    def center_text(self, cx, y, s, c, font, scale=2):
+        self.draw_text(cx - measure(s, font, scale) // 2, y, s, c,
+                       font, scale)
 
-    def para(self, x, y, s, c, scale, width, leading=None):
-        lines = split_lines(s, width, scale)
-        step = leading if leading is not None else 9 * scale
+    def para(self, x, y, s, c, font, scale, width, leading=None):
+        lines = split_lines(s, width, font, scale)
+        step = leading if leading is not None else (font["h"] + 1) * scale
         for i, ln in enumerate(lines):
-            self.draw_text(x, y + i * step, ln, c, scale)
+            self.draw_text(x, y + i * step, ln, c, font, scale)
         return len(lines)
 
+    def draw_image(self, x, y, w, h, img):
+        """Blit a decoded PNG (iw, ih, rgb bytearray) scaled to (w, h)."""
+        iw, ih, data = img
+        for dy in range(h):
+            yy = y + dy
+            if yy < 0 or yy >= self.h:
+                continue
+            sy = dy * ih // h
+            base = (yy * self.w + x) * 3
+            for dx in range(w):
+                xx = x + dx
+                if xx < 0 or xx >= self.w:
+                    continue
+                sx = dx * iw // w
+                o = (sy * iw + sx) * 3
+                j = base + dx * 3
+                self.pxbuf[j] = data[o]
+                self.pxbuf[j + 1] = data[o + 1]
+                self.pxbuf[j + 2] = data[o + 2]
 
-def world_dots(p):
-    blobs = [
-        (170, 210, 115, 55),
-        (300, 430, 55, 85),
-        (520, 185, 55, 38),
-        (545, 335, 72, 88),
-        (730, 205, 135, 72),
-        (825, 480, 55, 30),
-    ]
-    step = 16
-    for y in range(8, H, step):
-        for x in range(8, W, step):
-            for (cx, cy, rx, ry) in blobs:
-                dx = (x - cx) / rx
-                dy = (y - cy) / ry
-                if dx * dx + dy * dy <= 1.0:
-                    p.disc(x, y, 2, DOTC)
-                    break
-
-
-def city(p, base, heights, x0=0, x1=W):
-    x = x0
-    i = 0
-    while x < x1:
-        bw = 34 + (heights[i % len(heights)] % 30)
-        bh = heights[i % len(heights)]
-        col = NIGHT if i % 2 == 0 else NIGHT2
-        p.fill(x, base - bh, bw, bh, col)
-        for wy in range(base - bh + 10, base - 8, 18):
-            for wx in range(x + 6, x + bw - 6, 12):
-                if (wx * 7 + wy * 13) % 5 == 0:
-                    p.fill(wx, wy, 4, 6, LAMP if (wx + wy) % 3 else LAMP2)
-        x += bw + 6
-        i += 1
+    def photo(self, x, y, w, h, img, credit):
+        """Blit a photo with a dark caption bar and credit line."""
+        self.draw_image(x, y, w, h, img)
+        self.fill(x, y + h - 14, w, 14, NIGHT)
+        self.draw_text(x + 6, y + h - 12, credit, GREY, BODY, 1)
 
 
 def slant(p, x0, y0, x1, y1, c, t=2):
@@ -249,107 +475,125 @@ def icon_missile(p, x, y, s, c):
     p.disc(cx, y + s - 5, 3, GOLD)
 
 
-def icon_trade(p, x, y, s, c):
-    r = s // 4
-    p.disc(x + s // 2 - r // 2, y + s // 2, r, c)
-    p.disc(x + s // 2 - r // 2, y + s // 2, r - 3, CARD)
-    p.disc(x + s // 2 + r // 2, y + s // 2, r, c)
-    p.disc(x + s // 2 + r // 2, y + s // 2, r - 3, CARD)
-
-
 def icon_ban(p, x, y, s, c):
     r = s // 2 - 2
     cx, cy = x + s // 2, y + s // 2
     p.disc(cx, cy, r, c)
-    p.disc(cx, cy, r - 3, CARD)
+    p.disc(cx, cy, r - 3, NAVY)
     slant(p, cx - r + 3, cy + r - 3, cx + r - 3, cy - r + 3, c)
 
 
-def icon_storm(p, x, y, s, c):
-    cx, cy = x + s // 2, y + s // 2
-    for i in range(26):
-        a = i * 0.6
-        r = 2 + i * 0.6
-        p.disc(int(cx + r * math.cos(a)), int(cy + r * math.sin(a)), 2, c)
+HERO = {
+    "tag": "DIPLOMACY",
+    "head": "TRUMP MEETS QUAD ALLIES IN MANILA",
+    "sub": "FIRST QUAD SUMMIT IN 2 YEARS; "
+           "XI-PUTIN TALKS NEXT IN SHENZHEN",
+    "agenda": "AGENDA: MINERALS, MARITIME SECURITY, AI",
+    "photo": "hero.png",
+    "credit": "PHOTO: GAGE SKIDMORE / CC BY-SA 2.0",
+}
 
-
-ITEMS = [
-    ("DIPLOMACY", "TRUMP MEETS QUAD ALLIES IN MANILA",
-     "FIRST QUAD SUMMIT OF SECOND TERM; MARCOS NEXT"),
-    ("ASIA", "NORTH KOREA FIRES MISSILE INTO SEA",
-     "SEOUL: BALLISTIC MISSILE LAUNCHED FROM WONSAN"),
-    ("TRADE", "CANADA AND CHINA EXTEND TRADE DEALS",
-     "XI MEETS CARNEY AHEAD OF APEC SUMMIT"),
-    ("MIDDLE EAST", "BRITAIN SANCTIONS ISRAELI SETTLEMENT FIRMS",
-     "LONDON ACTS TO PROTECT TWO-STATE SOLUTION"),
-    ("WEATHER", "AKVAN STORM STRENGTHENS OFF INDIA",
-     "IMD WARNS ANDHRA PRADESH AND ODISHA ON ALERT"),
+# Row 1: photo cards. Row 2: pictogram cards.
+CARDS = [
+    {"tag": "MIDDLE EAST", "color": RED,
+     "head": "US JETS STRIKE IRAN AFTER DRONE ATTACK",
+     "sub": "3RD ATTACK ON BAHRAIN IN 5 DAYS; NO DAMAGE",
+     "photo": "jet.png",
+     "credit": "PHOTO: US AIR FORCE / PUBLIC DOMAIN"},
+    {"tag": "WEATHER", "color": TEAL,
+     "head": "AKVAN STORM STRENGTHENS OFF INDIA",
+     "sub": "LANDFALL FRIDAY; WINDS 145 KM/H",
+     "photo": "akvan.png",
+     "credit": "IMAGE: NASA WORLDVIEW / PUBLIC DOMAIN"},
+    {"tag": "ASIA", "color": BLUE,
+     "head": "NORTH KOREA FIRES MISSILE INTO SEA",
+     "sub": "SEOUL: BALLISTIC MISSILE LAUNCHED FROM WONSAN",
+     "icon": "missile"},
+    {"tag": "MIDDLE EAST", "color": RED,
+     "head": "BRITAIN SANCTIONS ISRAELI SETTLEMENT FIRMS",
+     "sub": "LONDON ACTS TO PROTECT TWO-STATE SOLUTION",
+     "icon": "ban"},
 ]
+
+TICKER = "MANILA | US-IRAN STRIKES | KOREA MISSILE | UK SANCTIONS | AKVAN"
 
 
 def render():
     p = Paint(W, H, NAVY)
     for i in range(8):
         p.fill(0, i * 128, W, 128, NAVY if i % 2 == 0 else NAVY2)
-    world_dots(p)
-    city(p, 928, [90, 150, 110, 190, 130, 220, 100, 170, 140,
-                  200, 120, 160, 95, 185, 135, 210, 105, 175])
 
-    p.center_text(470, 28, "THE WORLD", WHITE, 7)
-    p.rrect(868, 30, 132, 40, 8, RED)
-    p.disc(892, 50, 7, WHITE)
-    p.draw_text(908, 36, "LIVE", WHITE, 3)
-    p.fill(212, 96, 600, 3, GOLD)
-    p.center_text(512, 108, "WEDNESDAY, 18 NOVEMBER 2026", GOLD, 2)
+    p.fill(0, 0, W, 3, GOLD)
 
-    p.fill(24, 140, 976, 40, RED)
+    # Masthead.
+    p.center_text(512, 14, "THE WORLD", WHITE, HEAD, 7)
+    p.rrect(884, 28, 116, 40, 8, RED)
+    p.disc(904, 48, 6, WHITE)
+    p.draw_text(916, 38, "LIVE", WHITE, HEAD, 2)
+
+    # Date line with flanking rules.
+    p.fill(24, 116, 176, 2, GOLD)
+    p.fill(824, 116, 176, 2, GOLD)
+    p.center_text(512, 104, "WEDNESDAY, 18 NOVEMBER 2026", GOLD, BODY, 3)
+
+    # Breaking band.
+    p.fill(24, 140, 976, 36, RED)
     p.fill(24, 140, 976, 3, DARKRED)
-    p.center_text(512, 150, "BREAKING NEWS", WHITE, 3)
+    p.center_text(512, 143, "BREAKING NEWS", WHITE, HEAD, 3)
 
-    hx, hy, hw, hh = 24, 192, 976, 236
+    # Hero: real photo left, lead story right.
+    hx, hy, hw, hh = 24, 188, 976, 264
     p.fill(hx, hy, hw, hh, HEROBG)
     p.frame(hx, hy, hw, hh, LINE, 2)
-    p.fill(hx, hy, hw, 8, RED)
-    city(p, hy + hh - 2, [40, 62, 48, 74, 54, 68, 44, 58],
-         x0=hx + 8, x1=hx + hw - 8)
-    tag, head, sub = ITEMS[0]
-    p.draw_text(hx + 28, hy + 24, tag, GOLD, 2)
-    p.fill(hx + 28, hy + 46, 64, 3, GOLD)
-    p.draw_text(hx + 28, hy + 62, head, WHITE, 4)
-    p.draw_text(hx + 28, hy + 112, sub, MIST, 2)
-    p.draw_text(hx + 28, hy + 148, "AGENDA: MINERALS, MARITIME SECURITY, AI",
-                GOLD, 2)
+    p.fill(hx, hy, hw, 6, RED)
+    hero_img = read_png(os.path.join(ASSETS, HERO["photo"]))
+    p.photo(hx, hy + 6, 470, hh - 6, hero_img, HERO["credit"])
+    tx = hx + 494
+    tw = hx + hw - 24 - tx
+    p.draw_text(tx, hy + 18, HERO["tag"], GOLD, BODY, 2)
+    p.fill(tx, hy + 40, 64, 3, GOLD)
+    p.para(tx, hy + 56, HERO["head"], WHITE, HEAD, 4, tw, leading=48)
+    p.para(tx, hy + 160, HERO["sub"], MIST, BODY, 2, tw, leading=20)
+    p.para(tx, hy + 212, HERO["agenda"], GOLD, BODY, 2, tw, leading=20)
 
-    gx, gy = 24, 440
-    cw, ch = 482, 232
-    gap = 12
-    for idx, (tag, head, sub) in enumerate(ITEMS[1:]):
-        col = idx % 2
-        row = idx // 2
-        x = gx + col * (cw + gap)
-        y = gy + row * (ch + gap)
-        p.fill(x, y, cw, ch, CARD)
-        p.frame(x, y, cw, ch, LINE, 2)
-        p.fill(x, y, cw, 6, RED if idx % 2 == 0 else GOLD)
-        p.draw_text(x + 20, y + 20, tag, GOLD if idx % 2 else RED, 2)
-        icons = {"ASIA": icon_missile, "TRADE": icon_trade,
-                 "MIDDLE EAST": icon_ban, "WEATHER": icon_storm}
-        fn = icons.get(tag)
-        if fn:
-            fn(p, x + cw - 62, y + 12, 44, GOLD if idx % 2 else RED)
-        p.para(x + 20, y + 56, head, WHITE, 3, cw - 40, leading=27)
-        p.fill(x + 20, y + 132, cw - 40, 2, LINE)
-        p.para(x + 20, y + 148, sub, GREY, 2, cw - 40, leading=19)
+    # Hairline between hero and grid.
+    p.fill(24, 464, 976, 2, GOLD)
 
-    ty = 928
+    # Grid hairlines.
+    p.fill(511, 476, 1, 452, LINE)
+    p.fill(24, 730, 976, 1, LINE)
+
+    # Row 1: photo cards.
+    for i, card in enumerate(CARDS[:2]):
+        x = 24 + i * 494
+        img = read_png(os.path.join(ASSETS, card["photo"]))
+        p.photo(x, 476, 482, 96, img, card["credit"])
+        p.draw_text(x, 580, card["tag"], card["color"], BODY, 2)
+        n = p.para(x, 602, card["head"], WHITE, HEAD, 3, 482, leading=36)
+        p.para(x, 602 + n * 36 + 8, card["sub"], GREY, BODY, 2, 482,
+               leading=20)
+
+    # Row 2: pictogram cards.
+    for i, card in enumerate(CARDS[2:]):
+        x = 24 + i * 494
+        p.draw_text(x, 746, card["tag"], card["color"], BODY, 2)
+        n = p.para(x, 772, card["head"], WHITE, HEAD, 3, 442, leading=34)
+        p.para(x, 772 + n * 34 + 10, card["sub"], GREY, BODY, 2, 442,
+               leading=19)
+        if card["icon"] == "missile":
+            icon_missile(p, x + 402, 746, 72, card["color"])
+        else:
+            icon_ban(p, x + 402, 746, 72, card["color"])
+
+    # Lower-third ticker.
+    ty = 940
     p.fill(0, ty, W, H - ty, NIGHT)
     p.fill(0, ty, W, 3, GOLD)
-    p.rrect(24, ty + 18, 116, 48, 8, RED)
-    p.disc(48, ty + 42, 7, WHITE)
-    p.draw_text(64, ty + 30, "LIVE", WHITE, 3)
-    ticker = "MANILA | KOREA MISSILE | CANADA-CHINA | UK SANCTIONS | AKVAN"
-    tw = measure(ticker, 2)
-    p.draw_text(160 + (840 - tw) // 2, ty + 36, ticker, WHITE, 2)
+    p.rrect(24, 950, 116, 40, 8, RED)
+    p.disc(48, 970, 6, WHITE)
+    p.draw_text(64, 960, "LIVE", WHITE, HEAD, 2)
+    tw = measure(TICKER, BODY, 2)
+    p.draw_text(152 + (848 - tw) // 2, 962, TICKER, WHITE, BODY, 2)
     return p.pxbuf
 
 
