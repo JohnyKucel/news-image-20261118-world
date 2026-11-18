@@ -507,14 +507,17 @@ def render():
     p.draw_text(1000 - right, 208, "LATE EDITION", INK, BODY, 2)
     p.fill(24, 232, 976, 3, INK)
 
-    # Lead story: kicker, one-line headline, photo left, deck right.
+    # Lead story: kicker, one-line headline, full-width photo, deck
+    # below it spanning the page — no empty column beside the photo.
     p.draw_text(24, 248, HERO["tag"], RED, BODY, 2)
     p.draw_text(24, 274, HERO["head"], INK, HEAD, 4)
     hero_img = read_png(os.path.join(ASSETS, HERO["photo"]))
-    p.photo(24, 328, 440, 248, hero_img, HERO["credit"])
-    tx = 488
-    p.para(tx, 328, HERO["sub"], INK, BODY, 2, 512, leading=20)
-    p.para(tx, 388, HERO["agenda"], GREYINK, BODY, 2, 512, leading=20)
+    # Wide strip crop (976x200, never squashed): 480x98 source band,
+    # top-biased (y 28..126) so the head stays whole, podium cut.
+    src = (0, 28, 480, 98)
+    p.photo(24, 324, 976, 200, hero_img, HERO["credit"], src)
+    p.para(24, 546, HERO["sub"], INK, BODY, 2, 976, leading=24)
+    p.para(24, 570, HERO["agenda"], GREYINK, BODY, 2, 976, leading=24)
     p.fill(24, 600, 976, 1, HAIR)
 
     # Grid hairlines.
